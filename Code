@@ -1,0 +1,159 @@
+# 1. Import Libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.metrics import (classification_report, roc_auc_score, roc_curve, precision_recall_curve, confusion_matrix)
+from sklearn.utils import shuffle
+from xgboost import XGBClassifier
+
+# 2. Load Dataset
+df = pd.read_csv("/content/creditcard.csv")
+
+# 3. Basic Cleaning and EDA
+print("Initial shape:", df.shape)
+df = df.dropna(subset=['Class'])
+df = df.dropna()
+print("Shape after dropping NA:", df.shape)
+print("Class distribution:\n", df['Class'].value_counts(normalize=True))
+
+# Visualization
+plt.figure(figsize=(6,4))
+sns.countplot(x='Class', data=df)
+plt.title("Class Distribution (0 = Legit, 1 = Fraud)")
+plt.savefig("class_distribution.png")
+
+plt.figure(figsize=(10,6))
+sns.histplot(df['Amount'], bins=100)
+plt.title("Transaction Amount Distribution")
+plt.savefig("amount_distribution.png")
+
+plt.figure(figsize=(10,6))
+sns.histplot(df['Time'], bins=100)
+plt.title("Transaction Time Distribution")
+plt.savefig("time_distribution.png")
+
+# 4. Feature Scaling and Preparation
+X = df.drop('Class', axis=1)
+y = df['Class']
+scaler = StandardScaler()
+X[['Time', 'Amount']] = scaler.fit_transform(X[['Time', 'Amount']])
+
+# 5. Undersampling
+fraud = df[df['Class'] == 1]
+legit = df[df['Class'] == 0].sample(n=len(fraud)*5, random_state=42)
+balanced_df = pd.concat([fraud, legit])
+balanced_df = shuffle(balanced_df, random_state=42)
+
+print("\nBalanced class distribution:")
+print(balanced_df['Class'].value_counts(normalize=True))
+print("\nSample of balanced data:")
+print(balanced_df.head())
+
+# Prepare balanced features
+X = balanced_df.drop('Class', axis=1)
+y = balanced_df['Class']
+X[['Time', 'Amount']] = scaler.fit_transform(X[['Time', 'Amount']])
+
+# 6. Train-Test Split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# 7. Modeling
+# Logistic Regression
+lr = LogisticRegression(max_iter=1000)
+lr.fit(X_train, y_train)
+y_pred_lr = lr.predict(X_test)
+y_prob_lr = lr.predict_proba(X_test)[:,1]
+
+# XGBoost
+xgb = XGBClassifier(eval_metric='logloss')
+xgb.fit(X_train, y_train)
+y_pred_xgb = xgb.predict(X_test)
+y_prob_xgb = xgb.predict_proba(X_test)[:,1]
+
+# SVM Classifier
+svc = SVC(probability=True)
+svc.fit(X_train, y_train)
+y_pred_svc = svc.predict(X_test)
+y_prob_svc = svc.predict_proba(X_test)[:,1]
+
+# 8. Evaluation
+print("\n--- Logistic Regression ---")
+print(classification_report(y_test, y_pred_lr))
+lr_auc = roc_auc_score(y_test, y_prob_lr)
+print("Logistic Regression AUC:", lr_auc)
+
+print("\n--- XGBoost ---")
+print(classification_report(y_test, y_pred_xgb))
+xgb_auc = roc_auc_score(y_test, y_prob_xgb)
+print("XGBoost AUC:", xgb_auc)
+
+print("\n--- SVM Classifier ---")
+print(classification_report(y_test, y_pred_svc))
+svc_auc = roc_auc_score(y_test, y_prob_svc)
+print("SVM AUC:", svc_auc)
+
+# 9. ROC Curves
+fpr_lr, tpr_lr, _ = roc_curve(y_test, y_prob_lr)
+fpr_xgb, tpr_xgb, _ = roc_curve(y_test, y_prob_xgb)
+fpr_svc, tpr_svc, _ = roc_curve(y_test, y_prob_svc)
+
+plt.figure(figsize=(8,6))
+plt.plot(fpr_lr, tpr_lr, label='Logistic Regression')
+plt.plot(fpr_xgb, tpr_xgb, label='XGBoost')
+plt.plot(fpr_svc, tpr_svc, label='SVM')
+plt.plot([0,1], [0,1], 'k--')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve - All Models')
+plt.legend()
+plt.savefig("roc_curve_all_models.png")
+plt.show()
+
+# 10. Precision-Recall Curves
+precision_lr, recall_lr, _ = precision_recall_curve(y_test, y_prob_lr)
+precision_xgb, recall_xgb, _ = precision_recall_curve(y_test, y_prob_xgb)
+precision_svc, recall_svc, _ = precision_recall_curve(y_test, y_prob_svc)
+
+plt.figure(figsize=(8,6))
+plt.plot(recall_lr, precision_lr, label='Logistic Regression')
+plt.plot(recall_xgb, precision_xgb, label='XGBoost')
+plt.plot(recall_svc, precision_svc, label='SVM')
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall Curve - All Models')
+plt.legend()
+plt.savefig("pr_curve_all_models.png")
+plt.show()
+
+# 11. Confusion Matrices
+cm_lr = confusion_matrix(y_test, y_pred_lr)
+plt.figure(figsize=(6,4))
+sns.heatmap(cm_lr, annot=True, fmt='d', cmap='Blues', xticklabels=['Legit', 'Fraud'], yticklabels=['Legit', 'Fraud'])
+plt.title("Confusion Matrix - Logistic Regression")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.savefig("confusion_matrix_lr.png")
+plt.show()
+
+cm_xgb = confusion_matrix(y_test, y_pred_xgb)
+plt.figure(figsize=(6,4))
+sns.heatmap(cm_xgb, annot=True, fmt='d', cmap='Greens', xticklabels=['Legit', 'Fraud'], yticklabels=['Legit', 'Fraud'])
+plt.title("Confusion Matrix - XGBoost")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.savefig("confusion_matrix_xgb.png")
+plt.show()
+
+cm_svc = confusion_matrix(y_test, y_pred_svc)
+plt.figure(figsize=(6,4))
+sns.heatmap(cm_svc, annot=True, fmt='d', cmap='Oranges', xticklabels=['Legit', 'Fraud'], yticklabels=['Legit', 'Fraud'])
+plt.title("Confusion Matrix - SVM Classifier")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.savefig("confusion_matrix_svc.png")
+plt.show()
